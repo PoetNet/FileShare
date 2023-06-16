@@ -8,7 +8,7 @@ namespace FileShare.Models
         public DatabaseContext(DbContextOptions options)
             : base(options)
         {
-            Database.EnsureCreated();
+           // Database.EnsureCreated();
         }
     }
 }

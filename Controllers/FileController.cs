@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.EntityFrameworkCore;
 using FileShare.Models;
+using FileShare.Services;
+using System.Transactions;
+using NCrontab;
 
 namespace FileShare.Controllers
 {
@@ -32,10 +35,14 @@ namespace FileShare.Controllers
                 await file!.CopyToAsync(fileStream);
             }
 
+            byte[] salt = SodiumLibrary.CreateSalt();
+            var hashedPassword = SodiumLibrary.HashPassword(password, salt);
+
             _context.Files.Add(new CustomFile
             {
                 Path = filePath,
-                PasswordToDel = password
+                Salt = salt,
+                PasswordToDel = hashedPassword
             });
             _context.SaveChanges();
 
@@ -54,26 +61,39 @@ namespace FileShare.Controllers
         [HttpGet]
         public IResult GetAllFiles()
         {
-            return Results.Ok( new
-                {
-                    Data = _context.Files.ToList(),
-                    StatusCode = StatusCodes.Status200OK,
-                    Success = true
-                }
+            return Results.Ok(new
+            {
+                Data = _context.Files.ToList(),
+                StatusCode = StatusCodes.Status200OK,
+                Success = true
+            }
             );
         }
 
-
-        [HttpDelete("{id:Guid}/{password}")]
-        public async Task<IResult> DeleteFile(Guid id, string password)
+        [HttpPost("deleteFile")]
+        public async Task<IResult> DeleteFile(FileDeleteDto deleteRequest)
         {
-            var fileToDelete = await _context.Files.FirstOrDefaultAsync(file => file.Id == id);
+            var fileToDelete = await _context.Files.FirstOrDefaultAsync(file => file.Id == deleteRequest.Id);
+            if (fileToDelete == null || !File.Exists(fileToDelete.Path)) return Results.NotFound();
 
-            if (fileToDelete == null) return Results.NotFound();
-            if (password != fileToDelete.PasswordToDel) return Results.BadRequest();
+            var isVerified = SodiumLibrary.VerifyPassword(deleteRequest.PasswordToDel, fileToDelete.Salt, fileToDelete.PasswordToDel);
+            if (!isVerified) return Results.BadRequest();
 
-            _context.Files.Remove(fileToDelete);
-            _context.SaveChanges();
+            using (var scope = new TransactionScope())
+            {
+                try
+                {
+                    File.Delete(fileToDelete.Path);
+                    _context.Files.Remove(fileToDelete);
+                    _context.SaveChanges();
+                    scope.Complete();
+                }
+                catch (Exception ex)
+                {
+                    scope.Dispose();
+                    return Results.BadRequest(ex.Message);
+                }
+            }
 
             return Results.Ok();
         }
