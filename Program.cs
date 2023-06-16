@@ -1,12 +1,14 @@
 using Microsoft.Extensions.FileProviders;
 using FileShare.Models;
 using Microsoft.EntityFrameworkCore;
+using Hangfire.MemoryStorage;
+using Hangfire;
 
 DotNetEnv.Env.Load("./.env");
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<IFileProvider>(new PhysicalFileProvider(Directory.GetCurrentDirectory()));
-
+builder.Services.AddHangfire(configuration => configuration.UseMemoryStorage());
 var env = Environment.GetEnvironmentVariables();
 string connection =
 $"""
@@ -21,6 +23,10 @@ builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(conn
 builder.Services.AddControllers();
 
 var app = builder.Build();
+
+app.UseHangfireDashboard();
+app.UseHangfireServer();
+
 app.MapControllers();
 
 var environ = app.Services.GetService<IWebHostEnvironment>();

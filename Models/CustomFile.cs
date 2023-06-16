@@ -6,6 +6,8 @@ namespace FileShare.Models
         public string Path { get; set; } = null!;
         public byte[] Salt { get; set; } = null!;
         public byte[] PasswordToDel { get; set; } = null!;
+        public DateTime CreatedAt { get; set; }
+        public DateTime DelTime { get; set; }
     }
 
     public class FilePublicViewDto

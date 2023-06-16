@@ -5,6 +5,7 @@ using FileShare.Models;
 using FileShare.Services;
 using System.Transactions;
 using NCrontab;
+using Hangfire;
 
 namespace FileShare.Controllers
 {
@@ -38,13 +39,21 @@ namespace FileShare.Controllers
             byte[] salt = SodiumLibrary.CreateSalt();
             var hashedPassword = SodiumLibrary.HashPassword(password, salt);
 
-            _context.Files.Add(new CustomFile
+            CrontabSchedule schedule = CrontabSchedule.Parse("* * * * *");           
+
+            CustomFile newFile = new CustomFile
             {
                 Path = filePath,
                 Salt = salt,
-                PasswordToDel = hashedPassword
-            });
+                PasswordToDel = hashedPassword,
+                CreatedAt = DateTime.UtcNow,
+                DelTime = schedule.GetNextOccurrence(DateTime.UtcNow)
+            };
+
+            _context.Files.Add(newFile);
             _context.SaveChanges();
+
+            BackgroundJob.Schedule(() => DeleteFileAsync(newFile), newFile.DelTime);
 
             return Results.Ok();
         }
@@ -71,7 +80,7 @@ namespace FileShare.Controllers
         }
 
         [HttpPost("deleteFile")]
-        public async Task<IResult> DeleteFile(FileDeleteDto deleteRequest)
+        public async Task<IResult> DeleteFileWithPassword(FileDeleteDto deleteRequest)
         {
             var fileToDelete = await _context.Files.FirstOrDefaultAsync(file => file.Id == deleteRequest.Id);
             if (fileToDelete == null || !File.Exists(fileToDelete.Path)) return Results.NotFound();
@@ -79,23 +88,26 @@ namespace FileShare.Controllers
             var isVerified = SodiumLibrary.VerifyPassword(deleteRequest.PasswordToDel, fileToDelete.Salt, fileToDelete.PasswordToDel);
             if (!isVerified) return Results.BadRequest();
 
+            await DeleteFileAsync(fileToDelete);
+            return Results.Ok();
+        }
+
+        public async Task  DeleteFileAsync(CustomFile fileToDelete)
+        {
             using (var scope = new TransactionScope())
             {
                 try
                 {
                     File.Delete(fileToDelete.Path);
                     _context.Files.Remove(fileToDelete);
-                    _context.SaveChanges();
+                    await _context.SaveChangesAsync();
                     scope.Complete();
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     scope.Dispose();
-                    return Results.BadRequest(ex.Message);
                 }
             }
-
-            return Results.Ok();
         }
     }
 }
