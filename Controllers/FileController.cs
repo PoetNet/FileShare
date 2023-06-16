@@ -16,13 +16,16 @@ namespace FileShare.Controllers
         private readonly IFileProvider _fileProvider;
         private readonly IWebHostEnvironment _env;
         private readonly DatabaseContext _context;
+        private readonly Deleter _deleter;
         public FileController(IFileProvider fileProvider,
                               IWebHostEnvironment env,
-                              DatabaseContext context)
+                              DatabaseContext context,
+                              Deleter deleter)
         {
             _fileProvider = fileProvider;
             _env = env;
             _context = context;
+            _deleter = deleter;
         }
 
         [HttpPost("uploadFile")]
@@ -52,8 +55,6 @@ namespace FileShare.Controllers
 
             _context.Files.Add(newFile);
             _context.SaveChanges();
-
-            BackgroundJob.Schedule(() => DeleteFileAsync(newFile), newFile.DelTime);
 
             return Results.Ok();
         }
@@ -88,26 +89,8 @@ namespace FileShare.Controllers
             var isVerified = SodiumLibrary.VerifyPassword(deleteRequest.PasswordToDel, fileToDelete.Salt, fileToDelete.PasswordToDel);
             if (!isVerified) return Results.BadRequest();
 
-            await DeleteFileAsync(fileToDelete);
+            await _deleter.DeleteFileAsync(fileToDelete);
             return Results.Ok();
-        }
-
-        public async Task  DeleteFileAsync(CustomFile fileToDelete)
-        {
-            using (var scope = new TransactionScope())
-            {
-                try
-                {
-                    File.Delete(fileToDelete.Path);
-                    _context.Files.Remove(fileToDelete);
-                    await _context.SaveChangesAsync();
-                    scope.Complete();
-                }
-                catch (Exception)
-                {
-                    scope.Dispose();
-                }
-            }
         }
     }
 }

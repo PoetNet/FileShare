@@ -1,14 +1,13 @@
 using Microsoft.Extensions.FileProviders;
 using FileShare.Models;
 using Microsoft.EntityFrameworkCore;
-using Hangfire.MemoryStorage;
+using Hangfire.PostgreSql;
 using Hangfire;
 
 DotNetEnv.Env.Load("./.env");
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<IFileProvider>(new PhysicalFileProvider(Directory.GetCurrentDirectory()));
-builder.Services.AddHangfire(configuration => configuration.UseMemoryStorage());
 var env = Environment.GetEnvironmentVariables();
 string connection =
 $"""
@@ -20,9 +19,24 @@ $"""
 """;
 
 builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(connection));
+builder.Services.AddHangfire(configuration => configuration.UsePostgreSqlStorage(connection));
+builder.Services.AddSingleton<Deleter>();
+
 builder.Services.AddControllers();
 
 var app = builder.Build();
+
+void DeleteObsoleteDataWrapper()
+{
+    using (var scope = app!.Services.CreateScope())
+    {
+        var serviceProvider = scope.ServiceProvider;
+        var deleter = serviceProvider.GetRequiredService<Deleter>();
+        deleter.DeleteObsoleteData();
+    }
+}
+
+RecurringJob.AddOrUpdate("DeleteObsoleteData", () => DeleteObsoleteDataWrapper, Cron.Hourly);
 
 app.UseHangfireDashboard();
 app.UseHangfireServer();
