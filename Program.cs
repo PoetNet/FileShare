@@ -1,5 +1,6 @@
 using Microsoft.Extensions.FileProviders;
 using FileShare.Models;
+using FileShare.Services;
 using Microsoft.EntityFrameworkCore;
 using Hangfire.PostgreSql;
 using Hangfire;
@@ -19,27 +20,16 @@ $"""
 """;
 
 builder.Services.AddDbContext<DatabaseContext>(options => options.UseNpgsql(connection));
-builder.Services.AddHangfire(configuration => configuration.UsePostgreSqlStorage(connection));
+// builder.Services.AddHangfire(configuration => configuration.UsePostgreSqlStorage(connection));
 builder.Services.AddSingleton<Deleter>();
 
 builder.Services.AddControllers();
-
+// builder.Services.AddHostedService<FileCleanupTask>();
+// builder.Services.AddScoped<FileCleanupTask>();
 var app = builder.Build();
 
-void DeleteObsoleteDataWrapper()
-{
-    using (var scope = app!.Services.CreateScope())
-    {
-        var serviceProvider = scope.ServiceProvider;
-        var deleter = serviceProvider.GetRequiredService<Deleter>();
-        deleter.DeleteObsoleteData();
-    }
-}
-
-RecurringJob.AddOrUpdate("DeleteObsoleteData", () => DeleteObsoleteDataWrapper, Cron.Hourly);
-
-app.UseHangfireDashboard();
-app.UseHangfireServer();
+// app.UseHangfireDashboard();
+// app.UseHangfireServer();
 
 app.MapControllers();
 

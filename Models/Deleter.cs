@@ -27,11 +27,5 @@ namespace FileShare.Models
                 }
             }
         }
-
-        public void DeleteObsoleteData()
-        {
-            var obsoleteData = _context.Files.Where(file => file.CreatedAt < file.DelTime);
-            obsoleteData.Select(file => DeleteFileAsync(file));
-        }
     }
 }
