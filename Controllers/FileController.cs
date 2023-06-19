@@ -16,16 +16,13 @@ namespace FileShare.Controllers
         private readonly IFileProvider _fileProvider;
         private readonly IWebHostEnvironment _env;
         private readonly DatabaseContext _context;
-        private readonly Deleter _deleter;
         public FileController(IFileProvider fileProvider,
                               IWebHostEnvironment env,
-                              DatabaseContext context,
-                              Deleter deleter)
+                              DatabaseContext context)
         {
             _fileProvider = fileProvider;
             _env = env;
             _context = context;
-            _deleter = deleter;
         }
 
         [HttpPost("uploadFile")]
@@ -42,7 +39,7 @@ namespace FileShare.Controllers
             byte[] salt = SodiumLibrary.CreateSalt();
             var hashedPassword = SodiumLibrary.HashPassword(password, salt);
 
-            CrontabSchedule schedule = CrontabSchedule.Parse("* * * * *");           
+            CrontabSchedule schedule = CrontabSchedule.Parse("0 0 * * *");
 
             CustomFile newFile = new CustomFile
             {
@@ -55,6 +52,8 @@ namespace FileShare.Controllers
 
             _context.Files.Add(newFile);
             _context.SaveChanges();
+
+            BackgroundJob.Schedule(() => DeleteFileByTimer(newFile), newFile.DelTime);
 
             return Results.Ok();
         }
@@ -89,8 +88,37 @@ namespace FileShare.Controllers
             var isVerified = SodiumLibrary.VerifyPassword(deleteRequest.PasswordToDel, fileToDelete.Salt, fileToDelete.PasswordToDel);
             if (!isVerified) return Results.BadRequest();
 
-            await _deleter.DeleteFileAsync(fileToDelete);
+            await DeleteFileAsync(fileToDelete);
             return Results.Ok();
+        }
+
+        public async Task DeleteFileAsync(CustomFile fileToDelete)
+        {
+            using (var transaction = await _context.Database.BeginTransactionAsync())
+            {
+                try
+                {
+                    File.Delete(fileToDelete.Path);
+                    _context.Files.Remove(fileToDelete);
+                    await _context.SaveChangesAsync();
+
+                    await transaction.CommitAsync();
+                }
+                catch (Exception)
+                {
+                    await transaction.RollbackAsync();
+                }
+            }
+        }
+
+        public async Task DeleteFileByTimer(CustomFile fileToDelete)
+        {
+            if (fileToDelete.DelTime <= DateTime.UtcNow)
+            {
+                if (File.Exists(fileToDelete.Path))
+                    await DeleteFileAsync(fileToDelete);
+
+            }
         }
     }
 }
